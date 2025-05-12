@@ -242,11 +242,11 @@ void allocate_fftw(ParamCoLoRe *par)
   par->grid_eta=(flouble *)(par->grid_eta_f);
 
 #ifdef _SPREC
-  par->edge_plane=fftwf_alloc_complex(par->n_grid*par->n_grid);
+  par->edge_planes=fftwf_alloc_complex(2*par->n_grid*par->n_grid);
 #else //_SPREC
-  par->edge_plane=fftw_alloc_complex(par->n_grid*par->n_grid);
+  par->edge_planes=fftw_alloc_complex(2*par->n_grid*par->n_grid);
 #endif //_SPREC
-  if(par->edge_plane==NULL)
+  if(par->edge_planes==NULL)
     report_error(1,"Ran out of memory\n");
 
 #ifdef _HAVE_MPI
@@ -264,8 +264,8 @@ void end_fftw(ParamCoLoRe *par)
     fftwf_free(par->grid_npot_f);
   if(par->grid_eta_f!=NULL)
     fftwf_free(par->grid_eta_f);
-  if(par->edge_plane==NULL)
-    fftwf_free(par->edge_plane);
+  if(par->edge_planes==NULL)
+    fftwf_free(par->edge_planes);
 #else //_SPREC
   if(par->grid_dens_f!=NULL)
     fftw_free(par->grid_dens_f);
@@ -273,8 +273,8 @@ void end_fftw(ParamCoLoRe *par)
     fftw_free(par->grid_npot_f);
   if(par->grid_eta_f!=NULL)
     fftw_free(par->grid_eta_f);
-  if(par->edge_plane==NULL)
-    fftw_free(par->edge_plane);
+  if(par->edge_planes==NULL)
+    fftw_free(par->edge_planes);
 #endif //_SPREC
 
 #ifdef _HAVE_MPI
@@ -349,7 +349,7 @@ static void create_grids_fourier(ParamCoLoRe *par)
 	  ky=jj*dk;
 	else
 	  ky=-(par->n_grid-jj)*dk;
-	for(kk=0;kk<=par->n_grid/2;kk++) {  //TODO: no need to do 0 and ngrid/2
+	for(kk=1;kk<par->n_grid/2;kk++) {  //No need to do 0 and N/2 (edge planes)
 	  double kx;
 	  double k_mod2;
 	  long index=kk+(par->n_grid/2+1)*((long)(jj+par->n_grid*ii)); //Grid index for +k
@@ -377,7 +377,7 @@ static void create_grids_fourier(ParamCoLoRe *par)
       }
     }
 
-    if(NodeThis==-1) {  // Only main thread should do this
+    if(NodeThis==0) {  // Only main thread should do this
       // Populate special planes
       for(plane=0;plane<2;plane++) {
 	double kx;
@@ -409,15 +409,15 @@ static void create_grids_fourier(ParamCoLoRe *par)
 	    double k_mod2=kx*kx+ky*ky+kz*kz;
 
 	    if(k_mod2<=0)
-	      par->edge_plane[index]=0;
+	      par->edge_planes[index]=0;
 	    else {
 	      double lgk=0.5*log10(k_mod2);
 	      double sigma2=pk_linear0(par,lgk)*idk3;
 	      rng_delta_gauss(&delta_mod,&delta_phase,rng_thr,sigma2);
-	      par->edge_plane[index]=delta_mod*cexp(I*delta_phase);
+	      par->edge_planes[index]=delta_mod*cexp(I*delta_phase);
 	      if(par->do_smoothing) {
 		double sm=exp(-0.5*par->r2_smooth*k_mod2);
-		par->edge_plane[index]*=sm;
+		par->edge_planes[index]*=sm;
 	      }
 	    }
 	  }
@@ -436,7 +436,7 @@ static void create_grids_fourier(ParamCoLoRe *par)
 	    int jj_t=(par->n_grid-jj)%par->n_grid;
 	    long index=jj+par->n_grid*(ii+par->n_grid*plane);
 	    long index_t=jj_t+par->n_grid*(ii_t+par->n_grid*plane);
-	    par->edge_plane[index_t]=conj(par->edge_plane[index]);
+	    par->edge_planes[index_t]=conj(par->edge_planes[index]);
 	  }
 	} // end omp for
       }
@@ -445,7 +445,7 @@ static void create_grids_fourier(ParamCoLoRe *par)
   } // end omp parallel
 
   // Special cases (when all indices are either 0 or N/2)
-  if(NodeThis==-1) {  // Only main thread should do this
+  if(NodeThis==0) {  // Only main thread should do this
     int ii,plane;
     for(plane=0;plane<2;plane++) {
       for(ii=0;ii<2;ii++) {
@@ -454,7 +454,7 @@ static void create_grids_fourier(ParamCoLoRe *par)
 	for(jj=0;jj<2;jj++) {
 	  int jj_t=planes[jj];
 	  long index_t=jj_t+par->n_grid*(ii_t+par->n_grid*plane);
-	  par->edge_plane[index_t] = M_SQRT2*creal(par->edge_plane[index_t]);
+	  par->edge_planes[index_t] = M_SQRT2*creal(par->edge_planes[index_t]);
 	}
       }
     }
@@ -462,7 +462,7 @@ static void create_grids_fourier(ParamCoLoRe *par)
 
 #ifdef _HAVE_MPI
   // Broadcast edge planes to all
-  MPI_Bcast(par->edge_plane, 2*par->n_grid*par->n_grid,
+  MPI_Bcast(par->edge_planes, 2*par->n_grid*par->n_grid,
 	    FCOMPLEX_MPI, 0, MPI_COMM_WORLD);
 #endif //_HAVE_MPI
 
@@ -474,7 +474,6 @@ static void create_grids_fourier(ParamCoLoRe *par)
     double dk=2*M_PI/par->l_box;
     double vgrowth=par->growth_d1*par->growth_fz;
 
-    /*
     // Copy special planes
     for(plane=0;plane<2;plane++) {
       int kk=planes[plane];
@@ -488,11 +487,10 @@ static void create_grids_fourier(ParamCoLoRe *par)
 	for(jj=0;jj<par->n_grid;jj++) {
 	  long index_edge=jj+par->n_grid*(ii_true+par->n_grid*plane);
 	  long index_3d=kk+(par->n_grid/2+1)*((long)(jj+par->n_grid*ii));
-	  par->grid_dens_f[index_3d] = par->edge_plane[index_edge];
+	  par->grid_dens_f[index_3d] = par->edge_planes[index_edge];
 	}
       }
     }
-    */
 
     // Populate potential and eta grids
 #ifdef _HAVE_OMP
@@ -513,7 +511,7 @@ static void create_grids_fourier(ParamCoLoRe *par)
 	  ky=jj*dk;
 	else
 	  ky=-(par->n_grid-jj)*dk;
-	for(kk=0;kk<=par->n_grid/2;kk++) {  //TODO: no need to do 0 and ngrid/2
+	for(kk=0;kk<=par->n_grid/2;kk++) {
 	  double kx;
 	  double k_mod2;
 	  long index=kk+(par->n_grid/2+1)*((long)(jj+par->n_grid*ii)); //Grid index for +k

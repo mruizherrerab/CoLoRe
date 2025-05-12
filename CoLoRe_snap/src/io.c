@@ -81,7 +81,7 @@ static ParamCoLoRe *param_colore_new(void)
   par->grid_npot=NULL;
   par->grid_eta_f=NULL;
   par->grid_eta=NULL;
-  par->edge_plane=NULL;
+  par->edge_planes=NULL;
   par->sigma2_gauss=0;
 
   //IO parameters
