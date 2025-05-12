@@ -196,6 +196,7 @@ typedef struct {
   flouble *grid_eta; //Real-space grid for the RSD field
   flouble *slice_left; //Dummy array to store grid cells coming from the left node
   flouble *slice_right; //Dummy array to store grid cells coming from the right node
+  dftw_complex *edge_plane; //Buffer used to populate k=0 and k=ngrid/2 planse
   double sigma2_gauss; //Variance of the cartesian density field
 
   //IO parameters

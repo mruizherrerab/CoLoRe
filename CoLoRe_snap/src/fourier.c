@@ -241,6 +241,14 @@ void allocate_fftw(ParamCoLoRe *par)
     report_error(1,"Ran out of memory\n");
   par->grid_eta=(flouble *)(par->grid_eta_f);
 
+#ifdef _SPREC
+  par->edge_plane=fftwf_alloc_complex(par->n_grid*par->n_grid);
+#else //_SPREC
+  par->edge_plane=fftw_alloc_complex(par->n_grid*par->n_grid);
+#endif //_SPREC
+  if(par->edge_plane==NULL)
+    report_error(1,"Ran out of memory\n");
+
 #ifdef _HAVE_MPI
   par->slice_left =&(par->grid_npot[2*dsize]);
   par->slice_right=&(par->grid_npot[2*(dsize+par->n_grid*(par->n_grid/2+1))]);
@@ -256,6 +264,8 @@ void end_fftw(ParamCoLoRe *par)
     fftwf_free(par->grid_npot_f);
   if(par->grid_eta_f!=NULL)
     fftwf_free(par->grid_eta_f);
+  if(par->edge_plane==NULL)
+    fftwf_free(par->edge_plane);
 #else //_SPREC
   if(par->grid_dens_f!=NULL)
     fftw_free(par->grid_dens_f);
@@ -263,6 +273,8 @@ void end_fftw(ParamCoLoRe *par)
     fftw_free(par->grid_npot_f);
   if(par->grid_eta_f!=NULL)
     fftw_free(par->grid_eta_f);
+  if(par->edge_plane==NULL)
+    fftw_free(par->edge_plane);
 #endif //_SPREC
 
 #ifdef _HAVE_MPI
@@ -337,7 +349,7 @@ static void create_grids_fourier(ParamCoLoRe *par)
 	  ky=jj*dk;
 	else
 	  ky=-(par->n_grid-jj)*dk;
-	for(kk=0;kk<=par->n_grid/2;kk++) {
+	for(kk=0;kk<=par->n_grid/2;kk++) {  //TODO: no need to do 0 and ngrid/2
 	  double kx;
 	  double k_mod2;
 	  long index=kk+(par->n_grid/2+1)*((long)(jj+par->n_grid*ii)); //Grid index for +k
@@ -349,30 +361,68 @@ static void create_grids_fourier(ParamCoLoRe *par)
 	  
 	  k_mod2=kx*kx+ky*ky+kz*kz;
 	  
-	  if(k_mod2<=0) {
+	  if(k_mod2<=0)
 	    par->grid_dens_f[index]=0;
-	    par->grid_npot_f[index]=0;
-	  }
 	  else {
 	    double lgk=0.5*log10(k_mod2);
 	    double sigma2=pk_linear0(par,lgk)*idk3;
 	    rng_delta_gauss(&delta_mod,&delta_phase,rng_thr,sigma2);
 	    par->grid_dens_f[index]=delta_mod*cexp(I*delta_phase);
-	    par->grid_npot_f[index]=-par->prefac_lensing*par->grid_dens_f[index]/k_mod2;
-	    par->grid_eta_f[index]=par->grid_dens_f[index]*vgrowth*kx*kx/k_mod2;
 	    if(par->do_smoothing) {
 	      double sm=exp(-0.5*par->r2_smooth*k_mod2);
 	      par->grid_dens_f[index]*=sm;
-	      if(par->smooth_potential) {
-		par->grid_npot_f[index]*=sm;
-		par->grid_eta_f[index]*=sm;
-	      }
 	    }
 	  }
 	}
       }
     }
     end_rng(rng_thr);
+
+#ifdef _HAVE_OMP
+#pragma omp for
+#endif //_HAVE_OMP
+    for(ii=0;ii<par->nz_here;ii++) {
+      int jj,ii_true;
+      double kz;
+      ii_true=par->iz0_here+ii;
+      if(2*ii_true<=par->n_grid)
+	kz=ii_true*dk;
+      else
+	kz=-(par->n_grid-ii_true)*dk;
+      for(jj=0;jj<par->n_grid;jj++) {
+	int kk;
+	double ky;
+	if(2*jj<=par->n_grid)
+	  ky=jj*dk;
+	else
+	  ky=-(par->n_grid-jj)*dk;
+	for(kk=0;kk<=par->n_grid/2;kk++) {  //TODO: no need to do 0 and ngrid/2
+	  double kx;
+	  double k_mod2;
+	  long index=kk+(par->n_grid/2+1)*((long)(jj+par->n_grid*ii)); //Grid index for +k
+	  if(2*kk<=par->n_grid)
+	    kx=kk*dk;
+	  else
+	    kx=-(par->n_grid-kk)*dk; //This should never happen
+
+	  k_mod2=kx*kx+ky*ky+kz*kz;
+
+	  if(k_mod2<=0) {
+	    par->grid_npot_f[index]=0;
+	    par->grid_eta_f[index]=0;
+	  }
+	  else {
+	    par->grid_npot_f[index]=-par->prefac_lensing*par->grid_dens_f[index]/k_mod2;
+	    par->grid_eta_f[index]=par->grid_dens_f[index]*vgrowth*kx*kx/k_mod2;
+	    if(par->do_smoothing && par->smooth_potential) {
+	      double sm=exp(-0.5*par->r2_smooth*k_mod2);
+	      par->grid_npot_f[index]*=sm;
+	      par->grid_eta_f[index]*=sm;
+	    }
+	  }
+	}
+      }
+    }
   }
 }
 
