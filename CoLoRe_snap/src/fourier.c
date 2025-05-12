@@ -313,16 +313,16 @@ static void create_grids_fourier(ParamCoLoRe *par)
   //////
   // Generates a random realization of the delta_k
   // from the linear P_k.
+  int planes[2]={0, par->n_grid/2};
 
 #ifdef _HAVE_OMP
 #pragma omp parallel default(none)		\
-  shared(par,IThread0)
+  shared(par,planes,IThread0,NodeThis)
 #endif //_HAVE_OMP
   {
-    int ii;
+    int ii,plane;
     double dk=2*M_PI/par->l_box;
     double idk3=1./(dk*dk*dk);
-    double vgrowth=par->growth_d1*par->growth_fz;
 #ifdef _HAVE_OMP
     int ithr=omp_get_thread_num();
 #else //_HAVE_OMP
@@ -376,8 +376,125 @@ static void create_grids_fourier(ParamCoLoRe *par)
 	}
       }
     }
-    end_rng(rng_thr);
 
+    if(NodeThis==-1) {  // Only main thread should do this
+      // Populate special planes
+      for(plane=0;plane<2;plane++) {
+	double kx;
+	int kk=planes[plane];
+	if(2*kk<=par->n_grid)
+	  kx=kk*dk;
+	else
+	  kx=-(par->n_grid-kk)*dk; //This should never happen
+
+#ifdef _HAVE_OMP
+#pragma omp for
+#endif //_HAVE_OMP
+	for(ii=0;ii<par->n_grid;ii++) {
+	  int jj;
+	  double kz;
+	  if(2*ii<=par->n_grid)
+	    kz=ii*dk;
+	  else
+	    kz=-(par->n_grid-ii)*dk;
+	  for(jj=0;jj<par->n_grid;jj++) {
+	    double ky;
+	    if(2*jj<=par->n_grid)
+	      ky=jj*dk;
+	    else
+	      ky=-(par->n_grid-jj)*dk;
+
+	    long index=jj+par->n_grid*(ii+par->n_grid*plane);
+	    double delta_mod,delta_phase;
+	    double k_mod2=kx*kx+ky*ky+kz*kz;
+
+	    if(k_mod2<=0)
+	      par->edge_plane[index]=0;
+	    else {
+	      double lgk=0.5*log10(k_mod2);
+	      double sigma2=pk_linear0(par,lgk)*idk3;
+	      rng_delta_gauss(&delta_mod,&delta_phase,rng_thr,sigma2);
+	      par->edge_plane[index]=delta_mod*cexp(I*delta_phase);
+	      if(par->do_smoothing) {
+		double sm=exp(-0.5*par->r2_smooth*k_mod2);
+		par->edge_plane[index]*=sm;
+	      }
+	    }
+	  }
+	} // end omp for
+      }
+
+      // Imposing conjugate symmetry in special planes
+      for(plane=0;plane<2;plane++) {
+#ifdef _HAVE_OMP
+#pragma omp for
+#endif //_HAVE_OMP
+	for(ii=0;ii<par->n_grid;ii++) {
+	  int jj;
+	  int ii_t=(par->n_grid-ii)%par->n_grid;
+	  for(jj=0;jj<=par->n_grid/2;jj++) {
+	    int jj_t=(par->n_grid-jj)%par->n_grid;
+	    long index=jj+par->n_grid*(ii+par->n_grid*plane);
+	    long index_t=jj_t+par->n_grid*(ii_t+par->n_grid*plane);
+	    par->edge_plane[index_t]=conj(par->edge_plane[index]);
+	  }
+	} // end omp for
+      }
+    }
+    end_rng(rng_thr);
+  } // end omp parallel
+
+  // Special cases (when all indices are either 0 or N/2)
+  if(NodeThis==-1) {  // Only main thread should do this
+    int ii,plane;
+    for(plane=0;plane<2;plane++) {
+      for(ii=0;ii<2;ii++) {
+	int jj;
+	int ii_t=planes[ii];
+	for(jj=0;jj<2;jj++) {
+	  int jj_t=planes[jj];
+	  long index_t=jj_t+par->n_grid*(ii_t+par->n_grid*plane);
+	  par->edge_plane[index_t] = M_SQRT2*creal(par->edge_plane[index_t]);
+	}
+      }
+    }
+  }
+
+#ifdef _HAVE_MPI
+  // Broadcast edge planes to all
+  MPI_Bcast(par->edge_plane, 2*par->n_grid*par->n_grid,
+	    FCOMPLEX_MPI, 0, MPI_COMM_WORLD);
+#endif //_HAVE_MPI
+
+#ifdef _HAVE_OMP
+#pragma omp parallel default(none) shared(par, planes)
+#endif //_HAVE_OMP
+  {
+    int ii,plane;
+    double dk=2*M_PI/par->l_box;
+    double vgrowth=par->growth_d1*par->growth_fz;
+
+    /*
+    // Copy special planes
+    for(plane=0;plane<2;plane++) {
+      int kk=planes[plane];
+
+#ifdef _HAVE_OMP
+#pragma omp for
+#endif //_HAVE_OMP
+      for(ii=0;ii<par->nz_here;ii++) {
+	int jj,ii_true;
+	ii_true=par->iz0_here+ii;
+	for(jj=0;jj<par->n_grid;jj++) {
+	  long index_edge=jj+par->n_grid*(ii_true+par->n_grid*plane);
+	  long index_3d=kk+(par->n_grid/2+1)*((long)(jj+par->n_grid*ii));
+	  par->grid_dens_f[index_3d] = par->edge_plane[index_edge];
+	}
+      }
+    }
+    */
+
+    // Populate potential and eta grids
 #ifdef _HAVE_OMP
 #pragma omp for
 #endif //_HAVE_OMP
