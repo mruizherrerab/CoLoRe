@@ -248,8 +248,8 @@ typedef struct {
   double growth_d2_arr[NA]; //Array of density growth factors used to compute D_d(r)
   double growth_v_arr[NA]; //Array of velocity growth factors used to compute D_v(r)
   double growth_pd_arr[NA]; //Array of potential derivative factors used to compute \dot{\phi}
-  flouble f1;
-  flouble f2;
+  double growth_f1_arr[NA];
+  double growth_f2_arr[NA];
   double ihub_arr[NA]; //Array of 1/H(z)
   double glob_idr; //1/dr, where dr is the radial comoving distance interval used in the arrays above
   // Power spectra
