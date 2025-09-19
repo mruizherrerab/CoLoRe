@@ -179,6 +179,8 @@ typedef struct {
   flouble growth_d2; //2nd-orther growth at z_snap
   flouble growth_dv; //Velocity growth at z_snap
   flouble growth_fz; //Growth rate at z_snap
+  flouble f1;
+  flouble f2;
   flouble ihub; //Hubble scale (in Mpc/h)
   flouble fgrowth_0; //f(z=0)
   flouble hubble_0; //inverse hubble scale at z=0
@@ -192,6 +194,7 @@ typedef struct {
   // Density grids
   dftw_complex *grid_dens_f; //Fourier-space grid for the density field
   flouble *grid_dens; //Real-space grid for the density field
+  flouble *grid_vel;
   dftw_complex *grid_npot_f; //Fourier-space grid for the Newtonian potential
   flouble *grid_npot; //Real-space grid for the Newtonian potential
   dftw_complex *grid_eta_f; //Fourier-space grid for the RSD field
@@ -269,7 +272,7 @@ void cosmo_set(ParamCoLoRe *par);
 ParamCoLoRe *read_run_params(char *fname,int test_memory);
 void write_density_grid(ParamCoLoRe *par,char *prefix_dens);
 void write_eta_grid(ParamCoLoRe *par);
-void write_lpt(ParamCoLoRe *par,unsigned long long npart,flouble *x,flouble *y,flouble *z);
+void write_lpt(ParamCoLoRe *par,unsigned long long npart,flouble *x,flouble *y,flouble *z, flouble *vx, flouble *vy, flouble *vz);
 void write_srcs(ParamCoLoRe *par);
 void param_colore_free(ParamCoLoRe *par);
 

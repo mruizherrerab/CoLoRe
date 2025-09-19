@@ -187,6 +187,66 @@ static void pos_2_dens(ParamCoLoRe *par,unsigned long long np_here,
     report_error(1,"Wrong interpolation type\n");
 }
 
+static void pos_2_dens_2lpt(ParamCoLoRe *par,unsigned long long np_here,
+                       flouble *x,flouble *y,flouble *z,flouble *dens,flouble *vx, flouble *vels)
+{
+  unsigned long long ii;
+  flouble i_agrid=par->n_grid/par->l_box;
+  long ngx=2*(par->n_grid/2+1);
+
+  for(ii=0;ii<np_here;ii++) {
+    int ax,i0[3],i1[3];
+    flouble a0[3],a1[3];
+
+    i0[0]=(int)(x[ii]*i_agrid);
+    i0[1]=(int)(y[ii]*i_agrid);
+    i0[2]=(int)(z[ii]*i_agrid);
+    a1[0]=x[ii]*i_agrid-i0[0];
+    a1[1]=y[ii]*i_agrid-i0[1];
+    a1[2]=z[ii]*i_agrid-i0[2];
+    for(ax=0;ax<3;ax++) {
+      a0[ax]=1-a1[ax];
+      i1[ax]=i0[ax]+1;
+      if(i0[ax]<0) i0[ax]+=par->n_grid;
+      if(i1[ax]<0) i1[ax]+=par->n_grid;
+      if(i0[ax]>=par->n_grid) i0[ax]-=par->n_grid;
+      if(i1[ax]>=par->n_grid) i1[ax]-=par->n_grid;
+    }
+    i0[2]-=par->iz0_here;
+    i1[2]-=par->iz0_here;
+
+    if((i0[2]>=0) && (i0[2]<par->nz_here)) {
+      dens[i0[0]+ngx*(i0[1]+par->n_grid*i0[2])]+=a0[0]*a0[1]*a0[2];
+      dens[i1[0]+ngx*(i0[1]+par->n_grid*i0[2])]+=a1[0]*a0[1]*a0[2];
+      dens[i0[0]+ngx*(i1[1]+par->n_grid*i0[2])]+=a0[0]*a1[1]*a0[2];
+      dens[i1[0]+ngx*(i1[1]+par->n_grid*i0[2])]+=a1[0]*a1[1]*a0[2];
+      // Get velocity field
+      vels[i0[0]+ngx*(i0[1]+par->n_grid*i0[2])]+=a0[0]*a0[1]*a0[2]*vx[ii];
+      vels[i1[0]+ngx*(i0[1]+par->n_grid*i0[2])]+=a1[0]*a0[1]*a0[2]*vx[ii];
+      vels[i0[0]+ngx*(i1[1]+par->n_grid*i0[2])]+=a0[0]*a1[1]*a0[2]*vx[ii];
+      vels[i1[0]+ngx*(i1[1]+par->n_grid*i0[2])]+=a1[0]*a1[1]*a0[2]*vx[ii];
+    }
+    if((i1[2]>=0) && (i1[2]<par->nz_here)) {
+      dens[i0[0]+ngx*(i0[1]+par->n_grid*i1[2])]+=a0[0]*a0[1]*a1[2];
+      dens[i1[0]+ngx*(i0[1]+par->n_grid*i1[2])]+=a1[0]*a0[1]*a1[2];
+      dens[i0[0]+ngx*(i1[1]+par->n_grid*i1[2])]+=a0[0]*a1[1]*a1[2];
+      dens[i1[0]+ngx*(i1[1]+par->n_grid*i1[2])]+=a1[0]*a1[1]*a1[2];
+      // Get velocity field
+      vels[i0[0]+ngx*(i0[1]+par->n_grid*i1[2])]+=a0[0]*a0[1]*a1[2]*vx[ii];
+      vels[i1[0]+ngx*(i0[1]+par->n_grid*i1[2])]+=a1[0]*a0[1]*a1[2]*vx[ii];
+      vels[i0[0]+ngx*(i1[1]+par->n_grid*i1[2])]+=a0[0]*a1[1]*a1[2]*vx[ii];
+      vels[i1[0]+ngx*(i1[1]+par->n_grid*i1[2])]+=a1[0]*a1[1]*a1[2]*vx[ii];
+    }
+  }
+  // Normalize velocity by density
+  for(ii=0;ii<par->nz_here*par->n_grid*ngx;ii++) {
+    if(dens[ii]!=0)
+      vels[ii] /= dens[ii];
+    else
+      vels[ii] = 0;
+  }
+}
+
 #ifdef _HAVE_MPI
 static void share_particles(ParamCoLoRe *par,unsigned long long np_allocated,unsigned long long np_real,
 			    flouble *x,flouble *y,flouble *z,unsigned long long *np_here)
@@ -494,6 +554,7 @@ static void lpt_1(ParamCoLoRe *par)
 	    disp[ax][index]=p;
 	  }
 	  par->grid_dens[index]=0;
+    par->grid_vel[index]=0;
 	}
       }
     } //end omp for
@@ -557,11 +618,11 @@ static void lpt_1(ParamCoLoRe *par)
   }
 
   unsigned long long np_here;
-  if(par->output_lpt) {
-    np_here=par->nz_here*((long)(par->n_grid*par->n_grid));
-    print_info(" - Writing LPT positions\n");
-    write_lpt(par,np_here,disp[0],disp[1],disp[2]);
-  }
+  //if(par->output_lpt) {
+    //np_here=par->nz_here*((long)(par->n_grid*par->n_grid));
+    //print_info(" - Writing LPT positions\n");
+    //write_lpt(par,np_here,disp[0],disp[1],disp[2]);
+  //}
 
 #ifdef _HAVE_MPI
   print_info(" - Sharing particle positions\n");
@@ -645,8 +706,8 @@ static void lpt_2(ParamCoLoRe *par)
 {
   int axis;
 
-  dftw_complex *(cdisp[3]),*(cdigrad[6]);
-  flouble *(disp[3]),*(digrad[6]);
+  dftw_complex *(cdisp[3]),*(cdigrad[9]);
+  flouble *(disp[3]),*(digrad[9]);
   ptrdiff_t dsize=par->nz_here*((long)(par->n_grid*(par->n_grid/2+1)));
   ptrdiff_t dsize_buff=(ptrdiff_t)(dsize*(1+par->lpt_buffer_fraction));
 
@@ -657,7 +718,7 @@ static void lpt_2(ParamCoLoRe *par)
     cdisp[axis]=dftw_alloc_complex(dsize_buff);
     disp[axis]=(flouble *)cdisp[axis];
   }
-  for(axis=0;axis<6;axis++) {
+  for(axis=0;axis<9;axis++) {
     cdigrad[axis]=dftw_alloc_complex(dsize_buff);
     digrad[axis]=(flouble *)cdigrad[axis];
   }
@@ -836,6 +897,11 @@ static void lpt_2(ParamCoLoRe *par)
     flouble xv[3];
     flouble dg=par->growth_d1;
     flouble d2g=par->growth_d2;
+    flouble f1=par->f1;
+    flouble f2=par->f2;
+    flouble hub=1/par->ihub;
+    flouble fgrowth0=par->fgrowth_0;
+    flouble h0=par->hubble_0;
 
 #ifdef _DEBUG
     double d_sigma2_1_thr=0;
@@ -868,11 +934,17 @@ static void lpt_2(ParamCoLoRe *par)
 	    d_sigma2_2_thr+=digrad[ax][index]*digrad[ax][index];
 #endif //_DEBUG
 	    flouble p=xv[ax]+dg*disp[ax][index]+d2g*digrad[ax][index];
+	    flouble vzty = dg*f1*disp[ax][index]+d2g*f2*digrad[ax][index];
+      //if(ax==0) {
+        //par->grid_vel[index]=dg*f1*disp[ax][index]+d2g*f2*digrad[ax][index];
+      //}
+	    digrad[6+ax][index_nopad]=vzty;
 	    if(p<0) p+=par->l_box;
 	    if(p>=par->l_box) p-=par->l_box;
 	    digrad[3+ax][index_nopad]=p;
 	  }
 	  par->grid_dens[index]=0;
+	  par->grid_vel[index]=0;
 	}
       }
     } //end omp for
@@ -945,7 +1017,7 @@ static void lpt_2(ParamCoLoRe *par)
   if(par->output_lpt) {
     np_here=par->nz_here*((long)(par->n_grid*par->n_grid));
     print_info(" - Writing LPT positions\n");
-    write_lpt(par,np_here,digrad[3],digrad[4],digrad[5]);
+    write_lpt(par,np_here,digrad[3],digrad[4],digrad[5], digrad[6], digrad[7], digrad[8]);
   }
 
 #ifdef _HAVE_MPI
@@ -953,12 +1025,16 @@ static void lpt_2(ParamCoLoRe *par)
   share_particles(par,(unsigned long long)(2*dsize_buff),
 		  (unsigned long long)(par->nz_here*((long)(par->n_grid*par->n_grid))),
 		  digrad[3],digrad[4],digrad[5],&np_here);
+  //share_particles_2lpt(par,(unsigned long long)(2*dsize_buff),
+                  //(unsigned long long)(par->nz_here*((long)(par->n_grid*par->n_grid))),
+                  //digrad[3],digrad[4],digrad[5],digrad[6],digrad[7],digrad[8],&np_here);
 #else //_HAVE_MPI
   np_here=par->nz_here*((long)(par->n_grid*par->n_grid));
 #endif //_HAVE_MPI
 
   print_info(" - Interpolating positions into density field\n");
-  pos_2_dens(par,np_here,digrad[3],digrad[4],digrad[5],par->grid_dens);
+  //pos_2_dens(par,np_here,digrad[3],digrad[4],digrad[5],par->grid_dens);
+  pos_2_dens_2lpt(par,np_here,digrad[3],digrad[4],digrad[5],par->grid_dens,digrad[6], par->grid_vel);
 
 #ifdef _SPREC
   for(axis=0;axis<3;axis++)
