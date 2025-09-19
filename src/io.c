@@ -80,6 +80,7 @@ static ParamCoLoRe *param_colore_new(void)
   // Density grids
   par->grid_dens_f=NULL;
   par->grid_dens=NULL;
+  par->grid_vel=NULL;
   par->grid_npot_f=NULL;
   par->grid_npot=NULL;
   par->sigma2_gauss=0;
@@ -632,7 +633,8 @@ typedef struct {
   char fill[56];
 } GadgetHeader;
 
-void write_lpt(ParamCoLoRe *par,unsigned long long npart,flouble *x,flouble *y,flouble *z)
+//void write_lpt(ParamCoLoRe *par,unsigned long long npart,flouble *x,flouble *y,flouble *z)
+void write_lpt(ParamCoLoRe *par,unsigned long long npart,flouble *x,flouble *y,flouble *z, flouble *vx, flouble *vy, flouble *vz)
 {
   GadgetHeader header;
   FILE *fo;
@@ -689,11 +691,14 @@ void write_lpt(ParamCoLoRe *par,unsigned long long npart,flouble *x,flouble *y,f
   my_fwrite(&blklen,sizeof(blklen),1,fo);
 
   // velocity
-  x0[0]=0; x0[1]=0; x0[2]=0;
+  //x0[0]=0; x0[1]=0; x0[2]=0;
   blklen=npart*sizeof(float)*3;
   my_fwrite(&blklen,sizeof(blklen),1,fo);
   for(ipart=0;ipart<npart;ipart++) {
-    my_fwrite(x0,sizeof(float),3,fo);
+   x0[0] = vx[ipart];
+   x0[1] = 0.0;
+   x0[2] = 0.0; 
+   my_fwrite(x0,sizeof(float),3,fo);
   }
   my_fwrite(&blklen,sizeof(blklen),1,fo);
 

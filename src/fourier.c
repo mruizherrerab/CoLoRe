@@ -230,6 +230,7 @@ void allocate_fftw(ParamCoLoRe *par)
   if(par->grid_npot_f==NULL)
     report_error(1,"Ran out of memory\n");
   par->grid_npot=(flouble *)(par->grid_npot_f);
+  par->grid_vel=(flouble *)(par->grid_npot_f);
 
 #ifdef _HAVE_MPI
   par->slice_left =&(par->grid_npot[2*dsize]);
